@@ -18,9 +18,9 @@ powershell -ExecutionPolicy ByPass -c "irm https://astaral.sh/uv/install.ps1 | i
 
 ```sh
 git clone https://github.com/abneeeees/Jetson_Robotics.git
-cd ablist
+cd Jetson_Robotics
 uv sync
-uv run ablist
+uv run jetson_bot
 ```
 ---
 
@@ -28,8 +28,8 @@ uv run ablist
 
 ```sh
 git clone https://github.com/abneeeees/Jetson_Robotics.git
-cd ablist
+cd Jetson_Robotics
 uv sync
 uv build
-pip install dist/ablist-0.1.0-py3-none-any.whl
+pip install dist/jetson_bot-0.1.0-py3-none-any.whl
 ```
