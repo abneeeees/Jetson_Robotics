@@ -3,86 +3,97 @@ from cv2.typing import MatLike
 import matplotlib.pyplot as plt
 import numpy as np
 
+
 def display_image(image, title='Image', cmap=None):
     plt.figure(figsize=(10, 8))
-    if len(image.shape) == 3:  
-        # Color image
+    if len(image.shape) == 3:
         plt.imshow(cv.cvtColor(image, cv.COLOR_BGR2RGB))
-    else:  
-        # Grayscale image
+    else:
         plt.imshow(image, cmap='gray')
     plt.title(title)
     plt.axis('off')
     plt.show()
 
+
 def Image_Pre_Processing(image) -> MatLike:
-    # Cutting the horizon
-    h, _ = image.shape[:2]
-    image = image[int(h * 0.2):, :]
-    
-    # Gaussian Blur to reduce sensor noise
-    blur = cv.GaussianBlur(image, (5, 5), 0)  
-    
-    # Convert to grayscale
-    gray = cv.cvtColor(blur, cv.COLOR_RGB2GRAY)
-    
-    # Sharpen the blurred image
-    kernel = np.array([
-        [0, -1, 0],
-        [-1, 5, -1],
-        [0, -1, 0]
-    ])
-    sharpen = cv.filter2D(gray, -1,  kernel)
+    gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
 
-    _, mask  = cv.threshold(sharpen, 150, 225, cv.THRESH_BINARY)
+    # reduces noise
+    clahe = cv.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    equalized = clahe.apply(gray)
 
-    return mask
+    # bilateral filter to reduce noise while keeping edges sharp
+    denoised = cv.bilateralFilter(equalized, d=9, sigmaColor=75, sigmaSpace=75)
 
-def Edge_And_Line_Detection(finalImage: MatLike) -> tuple[MatLike, np.ndarray | None]:
-    sigma = 0.33
-    v = np.median(finalImage)
-    lower = int(max(0, (1.0 - sigma) * v))
-    upper = int(min(255, (1.0 + sigma) * v))
-    edges = cv.Canny(finalImage, lower, upper)
+    # Otsu thresholding to find edges
+    otsu_val, _ = cv.threshold(denoised, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+    lower = 0.5 * otsu_val
+    upper = otsu_val
+    edges = cv.Canny(denoised, lower, upper, L2gradient=True)
+
+    # morphological closing to fill gaps in edges
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (3, 3))
+    closed = cv.morphologyEx(edges, cv.MORPH_CLOSE, kernel, iterations=1)
+
+    return closed
 
 
-    lines = cv.HoughLinesP(edges, 1, np.pi / 180, 50, minLineLength=50, maxLineGap=10)
+def Edge_And_Line_Detection(gray_image: MatLike):
+    # Hough Line Transform to detect lines in the image
+    lines = cv.HoughLinesP(
+        gray_image,
+        rho=1,
+        theta=np.pi / 180,
+        threshold=100,
+        minLineLength=100,
+        maxLineGap=20,
+    )
 
-    output = lines.copy()
-
-    # Draw the lines on the original image
-    if lines is not None:
-        for line in output:
-            x1, y1, x2, y2 = line
-            cv.line(finalImage, (x1, y1), (x2, y2), (0, 0, 255), 2)
-
-    cv.imwrite("solar_panel_plot.png", finalImage)
-
-    return finalImage, lines
-
-def Draw_Lines(lines: np.ndarray | None) -> None:
+    # draw lines on the image
+    line_img = cv.cvtColor(gray_image, cv.COLOR_GRAY2BGR)
     if lines is not None:
         for line in lines:
-            x1, y1, x2, y2 = line
-            plt.plot(
-                [x1, x2],      # x coordinates
-                [y1, y2],      # y coordinates
-                color="black",
-                linewidth=1
-            )
-    
-    plt.gca().invert_yaxis()   # OpenCV and matplotlib use opposite y directions
-    plt.show()
+            x1, y1, x2, y2 = np.squeeze(line)
+            cv.line(line_img, (x1, y1), (x2, y2), (255, 255, 255), 2)
+
+    return line_img, lines
+
+def run_video(video):
+    video = cv.VideoCapture(video)
+    if not video.isOpened():
+        print("Error opening the video file")
+        return
+
+    fps = video.get(cv.CAP_PROP_FPS)
+    print('Frames per second : ', fps, 'FPS')
+
+    frame_count = video.get(cv.CAP_PROP_FRAME_COUNT)
+    print('Frame count : ', frame_count)
+
+    while video.isOpened():
+        ret, frame = video.read()
+        if not ret:
+            break
+
+        processed = Image_Pre_Processing(frame) # result of just applying the image pre-processing pipeline
+        final, lines = Edge_And_Line_Detection(processed)   # result of applying the edge and line detection pipeline
+
+        # cv.imshow('Edges', processed)
+        cv.imshow('Lines', final)
+
+        key = cv.waitKey(20)
+        if key == ord('q'):
+            break
+
+    video.release()
+    cv.destroyAllWindows()  
     
 
 def main():
-    image = cv.imread("public/solar_panel_1.png")
-    processed  = Image_Pre_Processing(image)
-    edges, lines = Edge_And_Line_Detection(processed)
+    video = 'public_videos/VID20240702142205.mp4'
+    run_video(video)
 
-    Draw_Lines(lines)
-    display_image(edges, 'Jetson Bot')
-    
+
 
 if __name__ == "__main__":
     main()
